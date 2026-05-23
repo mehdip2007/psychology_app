@@ -439,8 +439,9 @@ const T = {
     error:'خطا در ارتباط با سرور. دوباره تلاش کنید.',
     syncing:'در حال همگام‌سازی...',
     syncOk:'✅ همگام‌سازی موفق',
+    syncUpToDate:'✅ پایگاه دانش به‌روز است',
     syncFail:'❌ خطا در همگام‌سازی',
-    promoted:'تأییدشده', rejected:'ردشده', skipped:'رد شده',
+    promoted:'منبع جدید اضافه شد', rejected:'رد شد', alreadyDone:'قبلاً پردازش‌شده', awaitingAnnotation:'منتظر برچسب‌گذاری',
     uploading:'در حال آپلود...',
     uploadOk:'✅ فایل آپلود شد — در صف بررسی است',
     uploadFail:'❌ آپلود ناموفق',
@@ -470,8 +471,9 @@ const T = {
     error:'Could not connect to the server. Please try again.',
     syncing:'Syncing...',
     syncOk:'✅ Sync successful',
+    syncUpToDate:'✅ Already up to date',
     syncFail:'❌ Sync failed',
-    promoted:'promoted', rejected:'rejected', skipped:'skipped',
+    promoted:'new source added', rejected:'rejected', alreadyDone:'already processed', awaitingAnnotation:'awaiting annotation',
     uploading:'Uploading...',
     uploadOk:'✅ File uploaded — queued for review',
     uploadFail:'❌ Upload failed',
@@ -579,16 +581,22 @@ async function doSync() {
     const nPromoted = Array.isArray(data.promoted) ? data.promoted.length : (data.promoted ?? 0);
     const nRejected = Array.isArray(data.rejected) ? data.rejected.length : (data.rejected ?? 0);
     const nSkipped  = data.skipped ?? 0;
-    const lines = [
-      `${t.syncOk}`,
-      `▸ ${t.promoted}: ${nPromoted}`,
-      `▸ ${t.rejected}: ${nRejected}`,
-      `▸ ${t.skipped}: ${nSkipped}`,
-    ];
+    // Break skipped into "already processed" vs "pending annotation" counts
+    const nPending  = (await fetch('/api/stats').then(r=>r.json()).catch(()=>({pending:0}))).pending ?? 0;
+    const nDone     = Math.max(0, nSkipped - nPending);
+
+    const isUpToDate = nPromoted === 0 && nRejected === 0;
+    const headline   = isUpToDate ? t.syncUpToDate : t.syncOk;
+    const lines      = [headline];
+    if (nPromoted > 0) lines.push(`▸ ${nPromoted} ${t.promoted}`);
+    if (nRejected > 0) lines.push(`▸ ${nRejected} ${t.rejected}`);
+    if (nDone > 0)     lines.push(`▸ ${nDone} ${t.alreadyDone}`);
+    if (nPending > 0)  lines.push(`▸ ${nPending} ${t.awaitingAnnotation}`);
+
     resultEl.innerHTML = lines.join('<br>');
     resultEl.className = 'sync-result ok show';
 
-    showToast(t.syncOk);
+    showToast(headline);
     loadStats();
 
   } catch(e) {
