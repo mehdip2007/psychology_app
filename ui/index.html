@@ -29,6 +29,25 @@
     --shadow:     0 2px 16px rgba(44,40,32,.08);
   }
 
+  [data-theme="dark"] {
+    --bg:         #141417;
+    --surface:    #1E1E24;
+    --surface2:   #26262F;
+    --border:     #35353F;
+    --teal:       #4FA8A8;
+    --teal-light: #62BEBE;
+    --teal-dim:   #182828;
+    --gold:       #CFA050;
+    --gold-light: #261E0D;
+    --text:       #E8E3DC;
+    --text-mid:   #9B9088;
+    --text-soft:  #5E5850;
+    --danger:     #E05555;
+    --green:      #45A87A;
+    --green-dim:  #0F2318;
+    --shadow:     0 2px 20px rgba(0,0,0,.35);
+  }
+
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   html, body { height: 100%; background: var(--bg);
@@ -38,10 +57,15 @@
   body::before {
     content: ''; position: fixed; inset: 0;
     background-image:
-      radial-gradient(circle at 20% 20%, rgba(45,107,107,.04) 0%, transparent 50%),
-      radial-gradient(circle at 80% 80%, rgba(181,135,58,.04) 0%, transparent 50%);
+      radial-gradient(circle at 20% 20%, rgba(45,107,107,.05) 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(181,135,58,.05) 0%, transparent 50%);
     pointer-events: none; z-index: 0;
+    transition: opacity .3s;
   }
+
+  /* ── Theme transition ── */
+  html { transition: background-color .25s, color .25s; }
+  *, *::before, *::after { transition: background-color .25s, border-color .25s, color .15s, box-shadow .25s; }
 
   /* ── App shell: sidebar + main ── */
   .app { position: relative; z-index: 1; display: flex; height: 100%; }
@@ -222,10 +246,21 @@
   .lang-btn { padding: 4px 12px; border-radius: 16px; border: none; background: transparent; cursor: pointer; font-size: 12px; font-weight: 500; color: var(--text-mid); transition: all .2s; font-family: 'Vazirmatn',sans-serif; }
   .lang-btn.active { background: var(--surface); color: var(--teal); box-shadow: 0 1px 4px rgba(0,0,0,.1); }
 
+  .theme-btn {
+    width: 34px; height: 34px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); background: var(--surface);
+    cursor: pointer; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .15s; color: var(--text-mid);
+    flex-shrink: 0;
+  }
+  .theme-btn:hover { background: var(--teal-dim); color: var(--teal); border-color: var(--teal-light); }
+
   .disclaimer {
     margin: 12px 0 6px; background: var(--gold-light);
-    border: 1px solid #DFC78A; border-radius: var(--radius-sm);
-    padding: 9px 14px; font-size: 12px; color: #7A5A20;
+    border: 1px solid color-mix(in srgb, var(--gold) 40%, var(--border));
+    border-radius: var(--radius-sm);
+    padding: 9px 14px; font-size: 12px; color: var(--gold);
     display: flex; gap: 8px; align-items: flex-start; flex-shrink: 0;
   }
 
@@ -267,7 +302,7 @@
   .dot:nth-child(2) { animation-delay:.2s; } .dot:nth-child(3) { animation-delay:.4s; }
   @keyframes pulse { 0%,80%,100%{transform:scale(.7);opacity:.5;} 40%{transform:scale(1);opacity:1;} }
 
-  .error-bubble { background:#FDF0EF; border:1px solid #E8BFBB; color:var(--danger); padding:11px 14px; border-radius:var(--radius); font-size:13px; align-self:flex-end; max-width:84%; }
+  .error-bubble { background:color-mix(in srgb, var(--danger) 12%, var(--surface)); border:1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); color:var(--danger); padding:11px 14px; border-radius:var(--radius); font-size:13px; align-self:flex-end; max-width:84%; }
 
   /* input */
   .input-area { padding: 10px 0 18px; flex-shrink: 0; border-top: 1px solid var(--border); }
@@ -382,9 +417,12 @@
           </div>
         </div>
       </div>
-      <div class="lang-toggle">
-        <button class="lang-btn active" onclick="setLang('fa')" id="btn-fa">فارسی</button>
-        <button class="lang-btn" onclick="setLang('en')" id="btn-en">EN</button>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="تغییر تم">🌙</button>
+        <div class="lang-toggle">
+          <button class="lang-btn active" onclick="setLang('fa')" id="btn-fa">فارسی</button>
+          <button class="lang-btn" onclick="setLang('en')" id="btn-en">EN</button>
+        </div>
       </div>
     </header>
 
@@ -736,7 +774,27 @@ async function sendMessage() {
   finally { btn.disabled=false; input.focus(); }
 }
 
+// ── Theme ─────────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const next   = isDark ? 'light' : 'dark';
+  applyTheme(next);
+  localStorage.setItem('psyche-theme', next);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('theme-btn');
+  if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────
+(function initTheme() {
+  const saved   = localStorage.getItem('psyche-theme');
+  const prefers = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  applyTheme(saved || prefers);
+})();
+
 loadStats();
 </script>
 </body>
