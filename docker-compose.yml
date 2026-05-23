@@ -1,0 +1,130 @@
+name: psyche-agent
+
+services:
+  # ---- MongoDB: staging + production document store -----------------------
+  mongodb:
+    image: mongo:7.0
+    container_name: psyche-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-changeme}
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - psyche-net
+
+  # ---- Qdrant: vector store for semantic search ---------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: psyche-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - psyche-net
+
+  # ---- Redis: response cache ---------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: psyche-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - psyche-net
+
+  # ---- Ollama: local open-source LLM inference ----------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: psyche-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - psyche-net
+
+  # ---- LibreTranslate: Persian <-> English translation --------------------
+  libretranslate:
+    image: libretranslate/libretranslate:latest
+    container_name: psyche-translator
+    restart: unless-stopped
+    ports:
+      - "5001:5000"
+    environment:
+      LT_LOAD_ONLY: "fa,en"
+    volumes:
+      - libretranslate_data:/home/libretranslate/.local
+    networks:
+      - psyche-net
+
+  # ---- Label Studio: external human review tool ---------------------------
+  label-studio:
+    image: heartexlabs/label-studio:latest
+    container_name: psyche-review
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - label_studio_data:/label-studio/data
+    networks:
+      - psyche-net
+
+  # ---- Chat UI: Persian-first chat interface ------------------------------
+  chat-ui:
+    image: nginx:alpine
+    container_name: psyche-chat-ui
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    volumes:
+      - ./ui/index.html:/usr/share/nginx/html/index.html:ro
+      - ./ui/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - agent-api
+    networks:
+      - psyche-net
+
+  # ---- Agent API: the FastAPI application ---------------------------------
+  agent-api:
+    build: .
+    container_name: psyche-agent-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - mongodb
+      - qdrant
+      - redis
+      - ollama
+      - libretranslate
+      - label-studio
+    volumes:
+      - ./app:/code/app:ro
+      # Mount your Obsidian vault (read-only) for /obsidian/sync
+      # Change the left side to your actual vault path on your Mac
+      - ${OBSIDIAN_VAULT_PATH:-./vault-template}:/vault:ro
+    networks:
+      - psyche-net
+
+volumes:
+  mongodb_data:
+  qdrant_data:
+  redis_data:
+  ollama_data:
+  libretranslate_data:
+  label_studio_data:
+
+networks:
+  psyche-net:
+    driver: bridge

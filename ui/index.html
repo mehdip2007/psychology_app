@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>روان‌یار — دستیار روان‌شناسی</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600&family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:         #F7F4EF;
+    --surface:    #FDFAF6;
+    --surface2:   #F0EBE3;
+    --border:     #DDD5C8;
+    --teal:       #2D6B6B;
+    --teal-light: #3D8A8A;
+    --teal-dim:   #E8F2F2;
+    --gold:       #B5873A;
+    --gold-light: #F5EDD8;
+    --text:       #2C2820;
+    --text-mid:   #6B5F52;
+    --text-soft:  #9E9188;
+    --danger:     #C0392B;
+    --green:      #2E7D5E;
+    --green-dim:  #E8F5EE;
+    --radius:     12px;
+    --radius-sm:  8px;
+    --shadow:     0 2px 16px rgba(44,40,32,.08);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; background: var(--bg);
+    font-family: 'Vazirmatn','Segoe UI',sans-serif;
+    color: var(--text); font-size: 15px; line-height: 1.7; }
+
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background-image:
+      radial-gradient(circle at 20% 20%, rgba(45,107,107,.04) 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(181,135,58,.04) 0%, transparent 50%);
+    pointer-events: none; z-index: 0;
+  }
+
+  /* ── App shell: sidebar + main ── */
+  .app { position: relative; z-index: 1; display: flex; height: 100%; }
+
+  /* ══════════════════════════════════════
+     SIDEBAR
+  ══════════════════════════════════════ */
+  .sidebar {
+    width: 260px; flex-shrink: 0;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    transition: width .25s ease;
+  }
+
+  .sidebar.collapsed { width: 0; border: none; }
+
+  .sidebar-header {
+    padding: 20px 16px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+
+  .sidebar-title {
+    font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .8px; color: var(--text-soft);
+  }
+
+  .sidebar-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 20px; }
+  .sidebar-body::-webkit-scrollbar { width: 3px; }
+  .sidebar-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Section cards ── */
+  .s-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+  }
+
+  .s-card-title {
+    font-size: 11px; font-weight: 600; color: var(--text-mid);
+    text-transform: uppercase; letter-spacing: .6px;
+    margin-bottom: 12px; display: flex; align-items: center; gap: 6px;
+  }
+
+  /* ── Upload area ── */
+  .upload-zone {
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px 10px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .18s;
+    background: var(--surface);
+    position: relative;
+  }
+
+  .upload-zone:hover, .upload-zone.drag { border-color: var(--teal-light); background: var(--teal-dim); }
+  .upload-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .upload-icon { font-size: 22px; margin-bottom: 6px; }
+  .upload-text { font-size: 12px; color: var(--text-mid); line-height: 1.5; }
+  .upload-text strong { color: var(--teal); }
+
+  /* ── Upload progress/result ── */
+  .upload-result {
+    margin-top: 10px; font-size: 12px; padding: 8px 10px;
+    border-radius: var(--radius-sm); display: none; line-height: 1.5;
+  }
+
+  .upload-result.ok  { background: var(--green-dim); color: var(--green); border: 1px solid #B6DEC9; }
+  .upload-result.err { background: #FDF0EF; color: var(--danger); border: 1px solid #E8BFBB; }
+  .upload-result.show { display: block; }
+
+  /* ── Sync button ── */
+  .sync-btn {
+    width: 100%; padding: 10px;
+    background: var(--teal); color: #fff;
+    border: none; border-radius: var(--radius-sm);
+    font-family: 'Vazirmatn', sans-serif;
+    font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: all .18s;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+  }
+
+  .sync-btn:hover:not(:disabled) { background: var(--teal-light); }
+  .sync-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .sync-btn .spin { display: inline-block; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .sync-result {
+    margin-top: 10px; font-size: 12px; padding: 8px 10px;
+    border-radius: var(--radius-sm); display: none; line-height: 1.6;
+  }
+
+  .sync-result.ok  { background: var(--green-dim); color: var(--green); border: 1px solid #B6DEC9; }
+  .sync-result.err { background: #FDF0EF; color: var(--danger); border: 1px solid #E8BFBB; }
+  .sync-result.show { display: block; }
+
+  /* ── Pending count badge ── */
+  .stat-row {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; color: var(--text-mid); padding: 4px 0;
+  }
+
+  .stat-badge {
+    background: var(--teal-dim); color: var(--teal);
+    border-radius: 10px; padding: 1px 10px;
+    font-size: 11px; font-weight: 600;
+  }
+
+  .stat-badge.warn { background: #FFF4E0; color: #B8730A; }
+
+  /* ── Sources list ── */
+  .sources-list { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; max-height: 180px; overflow-y: auto; }
+  .sources-list::-webkit-scrollbar { width: 3px; }
+  .sources-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .source-item {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 5px 9px; font-size: 11px;
+  }
+  .source-item-name { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 6px; }
+  .source-item-chunks { color: var(--text-soft); font-size: 10px; white-space: nowrap; flex-shrink: 0; }
+
+  /* ── Links ── */
+  .sidebar-link {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--teal);
+    text-decoration: none; padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+    transition: color .15s;
+  }
+
+  .sidebar-link:last-child { border: none; }
+  .sidebar-link:hover { color: var(--teal-light); }
+
+  /* ══════════════════════════════════════
+     MAIN CHAT PANEL
+  ══════════════════════════════════════ */
+  .main {
+    flex: 1; display: flex; flex-direction: column;
+    min-width: 0; padding: 0 16px;
+  }
+
+  header {
+    padding: 20px 0 14px; flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+
+  .header-left { display: flex; align-items: center; gap: 10px; }
+
+  .sidebar-toggle {
+    width: 34px; height: 34px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); background: var(--surface);
+    cursor: pointer; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .15s; color: var(--text-mid);
+  }
+
+  .sidebar-toggle:hover { background: var(--teal-dim); color: var(--teal); border-color: var(--teal-light); }
+
+  .brand { display: flex; align-items: center; gap: 10px; }
+
+  .brand-icon {
+    width: 36px; height: 36px; background: var(--teal);
+    border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 16px; flex-shrink: 0;
+  }
+
+  .brand-text h1 { font-size: 18px; font-weight: 600; color: var(--teal); }
+  .brand-text p  { font-size: 11px; color: var(--text-soft); font-family: 'Cormorant Garamond',serif; font-style: italic; }
+
+  .lang-toggle { display: flex; background: var(--surface2); border-radius: 20px; padding: 3px; gap: 2px; border: 1px solid var(--border); }
+  .lang-btn { padding: 4px 12px; border-radius: 16px; border: none; background: transparent; cursor: pointer; font-size: 12px; font-weight: 500; color: var(--text-mid); transition: all .2s; font-family: 'Vazirmatn',sans-serif; }
+  .lang-btn.active { background: var(--surface); color: var(--teal); box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+
+  .disclaimer {
+    margin: 12px 0 6px; background: var(--gold-light);
+    border: 1px solid #DFC78A; border-radius: var(--radius-sm);
+    padding: 9px 14px; font-size: 12px; color: #7A5A20;
+    display: flex; gap: 8px; align-items: flex-start; flex-shrink: 0;
+  }
+
+  .messages {
+    flex: 1; overflow-y: auto; padding: 16px 0 8px;
+    display: flex; flex-direction: column; gap: 18px; scroll-behavior: smooth;
+  }
+
+  .messages::-webkit-scrollbar { width: 4px; }
+  .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* welcome */
+  .welcome { text-align: center; padding: 32px 16px; animation: fadeUp .5s ease both; }
+  .welcome-orb { width: 64px; height: 64px; background: linear-gradient(135deg, var(--teal), var(--teal-light)); border-radius: 50%; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 28px; box-shadow: 0 8px 28px rgba(45,107,107,.22); }
+  .welcome h2 { font-size: 20px; font-weight: 500; margin-bottom: 6px; }
+  .welcome p  { font-size: 13px; color: var(--text-mid); max-width: 380px; margin: 0 auto 20px; }
+  .suggestions { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; max-width: 500px; margin: 0 auto; }
+  .suggestion-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 12px; color: var(--text-mid); cursor: pointer; transition: all .18s; font-family: 'Vazirmatn',sans-serif; }
+  .suggestion-btn:hover { background: var(--teal-dim); border-color: var(--teal-light); color: var(--teal); transform: translateY(-1px); }
+
+  /* messages */
+  .msg { display: flex; flex-direction: column; animation: fadeUp .3s ease both; max-width: 84%; }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+  .msg.user { align-self: flex-start; align-items: flex-start; }
+  .msg.ai   { align-self: flex-end;   align-items: flex-end; }
+  .msg-label { font-size: 11px; color: var(--text-soft); margin-bottom: 4px; padding: 0 4px; }
+  .msg-bubble { padding: 12px 16px; border-radius: var(--radius); line-height: 1.75; font-size: 14px; box-shadow: var(--shadow); unicode-bidi: plaintext; }
+  .msg.user .msg-bubble { background: var(--teal); color: #fff; border-bottom-right-radius: 4px; }
+  .msg.ai   .msg-bubble { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
+  .msg-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; align-items: center; justify-content: flex-end; padding: 0 4px; }
+  .confidence-badge { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-soft); background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 2px 9px; }
+  .conf-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .conf-high { background: #3D9970; } .conf-mid { background: #F39C12; } .conf-low { background: var(--danger); }
+  .source-tag { font-size: 11px; background: var(--teal-dim); color: var(--teal); border: 1px solid rgba(45,107,107,.2); border-radius: 10px; padding: 2px 9px; font-weight: 500; }
+  .msg-disclaimer { font-size: 11px; color: var(--text-soft); font-style: italic; margin-top: 3px; padding: 0 4px; text-align: end; }
+
+  .thinking { align-self: flex-end; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); border-bottom-left-radius: 4px; padding: 13px 18px; display: flex; gap: 5px; align-items: center; box-shadow: var(--shadow); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--teal-light); animation: pulse 1.2s ease-in-out infinite; }
+  .dot:nth-child(2) { animation-delay:.2s; } .dot:nth-child(3) { animation-delay:.4s; }
+  @keyframes pulse { 0%,80%,100%{transform:scale(.7);opacity:.5;} 40%{transform:scale(1);opacity:1;} }
+
+  .error-bubble { background:#FDF0EF; border:1px solid #E8BFBB; color:var(--danger); padding:11px 14px; border-radius:var(--radius); font-size:13px; align-self:flex-end; max-width:84%; }
+
+  /* input */
+  .input-area { padding: 10px 0 18px; flex-shrink: 0; border-top: 1px solid var(--border); }
+  .input-row { display: flex; gap: 9px; align-items: flex-end; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 9px 11px; transition: border-color .2s, box-shadow .2s; box-shadow: var(--shadow); }
+  .input-row:focus-within { border-color: var(--teal-light); box-shadow: 0 0 0 3px rgba(45,107,107,.08); }
+  textarea { flex:1; border:none; outline:none; background:transparent; resize:none; font-family:'Vazirmatn',sans-serif; font-size:14px; color:var(--text); line-height:1.6; max-height:130px; unicode-bidi:plaintext; direction:rtl; }
+  textarea::placeholder { color: var(--text-soft); }
+  .send-btn { width:36px; height:36px; border-radius:50%; border:none; background:var(--teal); color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:all .18s; font-size:15px; }
+  .send-btn:hover:not(:disabled) { background:var(--teal-light); transform:scale(1.06); }
+  .send-btn:disabled { opacity:.45; cursor:not-allowed; transform:none; }
+  .input-hint { font-size:11px; color:var(--text-soft); text-align:center; margin-top:6px; }
+
+  /* toast */
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--text); color:#fff; padding:9px 20px; border-radius:20px; font-size:13px; opacity:0; transition:all .3s; pointer-events:none; z-index:999; white-space:nowrap; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+  @media (max-width:640px) {
+    .sidebar { position:fixed; top:0; bottom:0; right:0; z-index:50; box-shadow: -4px 0 20px rgba(0,0,0,.12); }
+    .sidebar.collapsed { width:0; }
+    .main { padding:0 10px; }
+    .msg { max-width: 95%; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══ SIDEBAR ══ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-title" id="sb-title">مدیریت منابع</span>
+      <button class="sidebar-toggle" onclick="toggleSidebar()" style="width:26px;height:26px;font-size:13px;">✕</button>
+    </div>
+
+    <div class="sidebar-body">
+
+      <!-- Status -->
+      <div class="s-card">
+        <div class="s-card-title">📊 <span id="sb-status-title">وضعیت پایگاه دانش</span></div>
+        <div class="stat-row">
+          <span id="sb-pending-label">در انتظار بررسی</span>
+          <span class="stat-badge warn" id="pending-count">—</span>
+        </div>
+        <div class="stat-row" style="margin-top:6px;">
+          <span id="sb-approved-label">منابع تأییدشده</span>
+          <span class="stat-badge" id="approved-count">—</span>
+        </div>
+        <div class="stat-row" style="margin-top:4px;">
+          <span id="sb-chunks-label">تکه‌های متنی</span>
+          <span class="stat-badge" id="chunks-count" style="background:var(--gold-light);color:var(--gold);">—</span>
+        </div>
+        <button class="sync-btn" id="refresh-btn" onclick="loadStats()" style="margin-top:12px;background:var(--surface2);color:var(--text-mid);border:1px solid var(--border);">
+          🔄 <span id="sb-refresh">بروزرسانی</span>
+        </button>
+      </div>
+
+      <!-- Approved sources list -->
+      <div class="s-card" id="sources-card" style="display:none;">
+        <div class="s-card-title">✅ <span id="sb-sources-title">منابع موجود</span></div>
+        <div class="sources-list" id="sources-list"></div>
+      </div>
+
+      <!-- Sync -->
+      <div class="s-card">
+        <div class="s-card-title">🔁 <span id="sb-sync-title">همگام‌سازی با Label Studio</span></div>
+        <p style="font-size:12px;color:var(--text-mid);margin-bottom:12px;line-height:1.6;" id="sb-sync-desc">
+          پس از تأیید منابع در Label Studio، اینجا همگام‌سازی را اجرا کنید.
+        </p>
+        <button class="sync-btn" id="sync-btn" onclick="doSync()">
+          <span id="sync-btn-icon">🔁</span>
+          <span id="sync-btn-text">همگام‌سازی اکنون</span>
+        </button>
+        <div class="sync-result" id="sync-result"></div>
+      </div>
+
+      <!-- Upload -->
+      <div class="s-card">
+        <div class="s-card-title">📄 <span id="sb-upload-title">آپلود منبع جدید</span></div>
+        <div class="upload-zone" id="upload-zone"
+          ondragover="event.preventDefault();this.classList.add('drag')"
+          ondragleave="this.classList.remove('drag')"
+          ondrop="handleDrop(event)">
+          <input type="file" id="file-input" accept=".pdf,.epub" onchange="handleFileSelect(event)">
+          <div class="upload-icon">📁</div>
+          <div class="upload-text"><strong id="ub-click">کلیک کنید</strong> <span id="ub-or">یا فایل را بکشید</span><br><span style="color:var(--text-soft)">PDF &amp; EPUB پشتیبانی می‌شود</span></div>
+        </div>
+        <div class="upload-result" id="upload-result"></div>
+      </div>
+
+      <!-- Links -->
+      <div class="s-card">
+        <div class="s-card-title">🔗 <span id="sb-links-title">ابزارها</span></div>
+        <a class="sidebar-link" href="http://localhost:8080" target="_blank">🏷️ <span id="sb-ls">Label Studio (بررسی منابع)</span></a>
+        <a class="sidebar-link" href="http://localhost:8000/docs" target="_blank">📖 <span id="sb-api">مستندات API</span></a>
+        <a class="sidebar-link" href="http://localhost:6333/dashboard" target="_blank">🔍 <span id="sb-qdrant">Qdrant Dashboard</span></a>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- ══ MAIN CHAT ══ -->
+  <div class="main">
+
+    <header>
+      <div class="header-left">
+        <button class="sidebar-toggle" onclick="toggleSidebar()" id="toggle-btn" title="پانل مدیریت">⚙️</button>
+        <div class="brand">
+          <div class="brand-icon">🧠</div>
+          <div class="brand-text">
+            <h1>روان‌یار</h1>
+            <p>Ravanyar · Psychology Information Assistant</p>
+          </div>
+        </div>
+      </div>
+      <div class="lang-toggle">
+        <button class="lang-btn active" onclick="setLang('fa')" id="btn-fa">فارسی</button>
+        <button class="lang-btn" onclick="setLang('en')" id="btn-en">EN</button>
+      </div>
+    </header>
+
+    <div class="disclaimer">
+      <span>⚠️</span>
+      <span id="disclaimer-text">این دستیار فقط اطلاعات کلینیکی تأییدشده ارائه می‌دهد و جایگزین روان‌پزشک یا روان‌شناس نیست. در موارد اورژانسی با اورژانس اجتماعی ۱۲۳ تماس بگیرید.</span>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="welcome" id="welcome">
+        <div class="welcome-orb">🧠</div>
+        <h2 id="welcome-title">سلام، چطور می‌توانم کمکتان کنم؟</h2>
+        <p id="welcome-sub">سؤالات خود را درباره مفاهیم روان‌شناسی بپرسید. پاسخ‌ها بر اساس منابع بالینی تأییدشده ارائه می‌شوند.</p>
+        <div class="suggestions">
+          <button class="suggestion-btn" onclick="useSuggestion(this)">اختلال اضطراب فراگیر چیست؟</button>
+          <button class="suggestion-btn" onclick="useSuggestion(this)">علائم افسردگی اساسی چیست؟</button>
+          <button class="suggestion-btn" onclick="useSuggestion(this)">تفاوت اضطراب و استرس چیست؟</button>
+          <button class="suggestion-btn" onclick="useSuggestion(this)">What is cognitive behavioral therapy?</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-row">
+        <textarea id="input" rows="1"
+          placeholder="سؤال خود را بنویسید..."
+          onkeydown="handleKey(event)"
+          oninput="autoResize(this)"></textarea>
+        <button class="send-btn" id="send-btn" onclick="sendMessage()">➤</button>
+      </div>
+      <p class="input-hint" id="input-hint">Enter برای ارسال &nbsp;·&nbsp; Shift+Enter برای خط جدید</p>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── i18n ──────────────────────────────────────────────────────────────────
+const T = {
+  fa: {
+    disclaimer:'این دستیار فقط اطلاعات کلینیکی تأییدشده ارائه می‌دهد و جایگزین روان‌پزشک یا روان‌شناس نیست. در موارد اورژانسی با اورژانس اجتماعی ۱۲۳ تماس بگیرید.',
+    welcomeTitle:'سلام، چطور می‌توانم کمکتان کنم؟',
+    welcomeSub:'سؤالات خود را درباره مفاهیم روان‌شناسی بپرسید. پاسخ‌ها بر اساس منابع بالینی تأییدشده ارائه می‌شوند.',
+    you:'شما', assistant:'روان‌یار',
+    placeholder:'سؤال خود را بنویسید...',
+    hint:'Enter برای ارسال · Shift+Enter برای خط جدید',
+    confidence:'اطمینان', sources:'منابع',
+    msgDisclaimer:'این پاسخ جنبه اطلاعاتی دارد و جایگزین مشاور تخصصی نیست.',
+    noSource:'منابع کافی تأییدشده یافت نشد. لطفاً با روان‌پزشک مشورت کنید.',
+    error:'خطا در ارتباط با سرور. دوباره تلاش کنید.',
+    syncing:'در حال همگام‌سازی...',
+    syncOk:'✅ همگام‌سازی موفق',
+    syncFail:'❌ خطا در همگام‌سازی',
+    promoted:'تأییدشده', rejected:'ردشده', skipped:'رد شده',
+    uploading:'در حال آپلود...',
+    uploadOk:'✅ فایل آپلود شد — در صف بررسی است',
+    uploadFail:'❌ آپلود ناموفق',
+    pending:'در انتظار بررسی', approved:'منابع تأییدشده', chunks:'تکه‌های متنی',
+    sourcesTitle:'منابع موجود',
+    refresh:'بروزرسانی',
+    sbTitle:'مدیریت منابع', sbStatusTitle:'وضعیت پایگاه دانش',
+    sbSyncTitle:'همگام‌سازی با Label Studio',
+    sbSyncDesc:'پس از تأیید منابع در Label Studio، اینجا همگام‌سازی را اجرا کنید.',
+    syncNow:'همگام‌سازی اکنون',
+    sbUploadTitle:'آپلود منبع جدید',
+    ubClick:'کلیک کنید', ubOr:'یا فایل را بکشید',
+    sbLinksTitle:'ابزارها',
+    sbLs:'Label Studio (بررسی منابع)',
+    sbApi:'مستندات API', sbQdrant:'Qdrant Dashboard',
+  },
+  en: {
+    disclaimer:'This assistant provides verified clinical information only and is not a substitute for a licensed psychologist. In emergencies contact emergency services immediately.',
+    welcomeTitle:'Hello, how can I help you?',
+    welcomeSub:'Ask questions about psychology concepts. Answers are based on verified clinical sources.',
+    you:'You', assistant:'Ravanyar',
+    placeholder:'Type your question...',
+    hint:'Enter to send · Shift+Enter for new line',
+    confidence:'Confidence', sources:'Sources',
+    msgDisclaimer:'This response is informational only and is not a substitute for professional care.',
+    noSource:'No sufficient verified sources found. Please consult a licensed professional.',
+    error:'Could not connect to the server. Please try again.',
+    syncing:'Syncing...',
+    syncOk:'✅ Sync successful',
+    syncFail:'❌ Sync failed',
+    promoted:'promoted', rejected:'rejected', skipped:'skipped',
+    uploading:'Uploading...',
+    uploadOk:'✅ File uploaded — queued for review',
+    uploadFail:'❌ Upload failed',
+    pending:'Pending review', approved:'Approved sources', chunks:'Text chunks',
+    sourcesTitle:'Available sources',
+    refresh:'Refresh',
+    sbTitle:'Source Management', sbStatusTitle:'Knowledge Base Status',
+    sbSyncTitle:'Sync with Label Studio',
+    sbSyncDesc:'After approving sources in Label Studio, run sync here.',
+    syncNow:'Sync Now',
+    sbUploadTitle:'Upload New Source',
+    ubClick:'Click to select', ubOr:'or drag a file here',
+    sbLinksTitle:'Tools',
+    sbLs:'Label Studio (review sources)',
+    sbApi:'API Docs', sbQdrant:'Qdrant Dashboard',
+  }
+};
+
+let lang = 'fa';
+let sidebarOpen = true;
+
+// ── Language ──────────────────────────────────────────────────────────────
+function setLang(l) {
+  lang = l;
+  document.getElementById('btn-fa').classList.toggle('active', l==='fa');
+  document.getElementById('btn-en').classList.toggle('active', l==='en');
+  document.documentElement.lang = l;
+  document.documentElement.dir = l==='fa' ? 'rtl' : 'ltr';
+  const t = T[l];
+  document.getElementById('disclaimer-text').textContent = t.disclaimer;
+  const wt=document.getElementById('welcome-title'), ws=document.getElementById('welcome-sub');
+  if(wt) wt.textContent=t.welcomeTitle;
+  if(ws) ws.textContent=t.welcomeSub;
+  document.getElementById('input').placeholder = t.placeholder;
+  document.getElementById('input-hint').textContent = t.hint;
+  document.getElementById('sync-btn-text').textContent = t.syncNow;
+  document.getElementById('sb-title').textContent = t.sbTitle;
+  document.getElementById('sb-status-title').textContent = t.sbStatusTitle;
+  document.getElementById('sb-sync-title').textContent = t.sbSyncTitle;
+  document.getElementById('sb-sync-desc').textContent = t.sbSyncDesc;
+  document.getElementById('sb-upload-title').textContent = t.sbUploadTitle;
+  document.getElementById('sb-links-title').textContent = t.sbLinksTitle;
+  document.getElementById('sb-ls').textContent = t.sbLs;
+  document.getElementById('sb-api').textContent = t.sbApi;
+  document.getElementById('sb-refresh').textContent = t.refresh;
+  document.getElementById('sb-pending-label').textContent = t.pending;
+  document.getElementById('sb-approved-label').textContent = t.approved;
+  document.getElementById('sb-chunks-label').textContent = t.chunks;
+  document.getElementById('sb-sources-title').textContent = t.sourcesTitle;
+  document.getElementById('ub-click').textContent = t.ubClick;
+  document.getElementById('ub-or').textContent = t.ubOr;
+}
+
+// ── Sidebar ───────────────────────────────────────────────────────────────
+function toggleSidebar() {
+  sidebarOpen = !sidebarOpen;
+  document.getElementById('sidebar').classList.toggle('collapsed', !sidebarOpen);
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const res = await fetch('/api/stats');
+    if (!res.ok) return;
+    const data = await res.json();
+    document.getElementById('pending-count').textContent = data.pending ?? '0';
+    document.getElementById('approved-count').textContent = data.approved ?? '0';
+    document.getElementById('chunks-count').textContent = data.total_chunks ?? '0';
+
+    const list = document.getElementById('sources-list');
+    const card = document.getElementById('sources-card');
+    if (data.sources && data.sources.length > 0) {
+      card.style.display = '';
+      list.innerHTML = data.sources.map(s => `
+        <div class="source-item">
+          <span style="color:var(--green);font-size:10px;">✓</span>
+          <span class="source-item-name" title="${escHtml(s.name)}">${escHtml(s.name)}</span>
+          <span class="source-item-chunks">${s.chunks} تکه</span>
+        </div>`).join('');
+    } else {
+      card.style.display = 'none';
+    }
+  } catch {}
+}
+
+// ── Sync ──────────────────────────────────────────────────────────────────
+async function doSync() {
+  const btn = document.getElementById('sync-btn');
+  const icon = document.getElementById('sync-btn-icon');
+  const resultEl = document.getElementById('sync-result');
+  const t = T[lang];
+
+  btn.disabled = true;
+  icon.textContent = '⏳';
+  icon.className = '';
+  resultEl.className = 'sync-result';
+  resultEl.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/review/sync', { method:'POST' });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.detail || 'Error');
+
+    const nPromoted = Array.isArray(data.promoted) ? data.promoted.length : (data.promoted ?? 0);
+    const nRejected = Array.isArray(data.rejected) ? data.rejected.length : (data.rejected ?? 0);
+    const nSkipped  = data.skipped ?? 0;
+    const lines = [
+      `${t.syncOk}`,
+      `▸ ${t.promoted}: ${nPromoted}`,
+      `▸ ${t.rejected}: ${nRejected}`,
+      `▸ ${t.skipped}: ${nSkipped}`,
+    ];
+    resultEl.innerHTML = lines.join('<br>');
+    resultEl.className = 'sync-result ok show';
+
+    showToast(t.syncOk);
+    loadStats();
+
+  } catch(e) {
+    resultEl.textContent = `${t.syncFail}: ${e.message}`;
+    resultEl.className = 'sync-result err show';
+    showToast(t.syncFail);
+  } finally {
+    btn.disabled = false;
+    icon.textContent = '🔁';
+  }
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file) uploadFile(file);
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) uploadFile(file);
+  e.target.value = '';
+}
+
+async function uploadFile(file) {
+  const t = T[lang];
+  const resultEl = document.getElementById('upload-result');
+  const zone = document.getElementById('upload-zone');
+
+  resultEl.textContent = t.uploading;
+  resultEl.className = 'upload-result show';
+  zone.style.pointerEvents = 'none';
+
+  const form = new FormData();
+  form.append('file', file);
+
+  try {
+    const res = await fetch('/api/ingest/upload', { method:'POST', body:form });
+
+    // nginx may return plain HTML for 413 — guard against non-JSON bodies
+    const contentType = res.headers.get('content-type') || '';
+    const data = contentType.includes('application/json') ? await res.json() : null;
+
+    if (!res.ok) {
+      if (res.status === 413) throw new Error(lang === 'fa' ? 'فایل خیلی بزرگ است (حداکثر ۱۰۰ مگابایت)' : 'File too large (max 100 MB)');
+      throw new Error((data && data.detail) || `HTTP ${res.status}`);
+    }
+
+    resultEl.innerHTML = `${t.uploadOk}<br><span style="color:var(--text-soft)">${(data.char_count||0).toLocaleString()} chars · ${(data.language||'').toUpperCase()} · ${data.extraction_method||''}</span>`;
+    resultEl.className = 'upload-result ok show';
+    showToast(t.uploadOk);
+    loadStats();
+
+  } catch(e) {
+    resultEl.textContent = `${t.uploadFail}: ${e.message}`;
+    resultEl.className = 'upload-result err show';
+  } finally {
+    zone.style.pointerEvents = '';
+  }
+}
+
+// ── Chat helpers ──────────────────────────────────────────────────────────
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight,130)+'px';
+  const fa=(el.value.match(/[\u0600-\u06FF]/g)||[]).length;
+  el.style.direction = fa > el.value.length*.25 ? 'rtl' : 'ltr';
+}
+
+function handleKey(e) { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();} }
+function useSuggestion(btn) { document.getElementById('input').value=btn.textContent.trim(); autoResize(document.getElementById('input')); sendMessage(); }
+function scrollBottom() { const m=document.getElementById('messages'); m.scrollTop=m.scrollHeight; }
+function hideWelcome() { const w=document.getElementById('welcome'); if(w) w.remove(); }
+function confClass(s){ return s>=.85?'conf-high':s>=.65?'conf-mid':'conf-low'; }
+function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>'); }
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2800);
+}
+
+function appendUser(text) {
+  const t=T[lang];
+  const div=document.createElement('div'); div.className='msg user';
+  div.innerHTML=`<div class="msg-label">${t.you}</div><div class="msg-bubble">${escHtml(text)}</div>`;
+  document.getElementById('messages').appendChild(div); scrollBottom();
+}
+
+function appendThinking() {
+  const div=document.createElement('div'); div.className='thinking'; div.id='thinking';
+  div.innerHTML='<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+  document.getElementById('messages').appendChild(div); scrollBottom();
+}
+
+function removeThinking() { const t=document.getElementById('thinking'); if(t) t.remove(); }
+
+function appendAI(data) {
+  const t=T[lang]; removeThinking();
+  if(!data.is_safe||!data.answer) {
+    const div=document.createElement('div'); div.className='error-bubble'; div.style.animation='fadeUp .3s ease both';
+    div.textContent=t.noSource; document.getElementById('messages').appendChild(div); scrollBottom(); return;
+  }
+  const sources=(data.sources||[]).map(s=>`<span class="source-tag">${escHtml(s)}</span>`).join('');
+  const conf=typeof data.confidence==='number'?data.confidence:0;
+  const div=document.createElement('div'); div.className='msg ai';
+  div.innerHTML=`
+    <div class="msg-label">${t.assistant}</div>
+    <div class="msg-bubble">${escHtml(data.answer)}</div>
+    <div class="msg-meta">
+      <div class="confidence-badge"><span class="conf-dot ${confClass(conf)}"></span>${t.confidence}: ${Math.round(conf*100)}%</div>
+      ${sources}
+    </div>
+    <div class="msg-disclaimer">${data.disclaimer?escHtml(data.disclaimer):t.msgDisclaimer}</div>`;
+  document.getElementById('messages').appendChild(div); scrollBottom();
+}
+
+function appendError(msg) {
+  removeThinking();
+  const div=document.createElement('div'); div.className='error-bubble'; div.style.animation='fadeUp .3s ease both';
+  div.textContent=msg||T[lang].error; document.getElementById('messages').appendChild(div); scrollBottom();
+}
+
+// ── Send message ──────────────────────────────────────────────────────────
+async function sendMessage() {
+  const input=document.getElementById('input'), btn=document.getElementById('send-btn');
+  const question=input.value.trim(); if(!question) return;
+  hideWelcome(); input.value=''; input.style.height='auto'; btn.disabled=true;
+  appendUser(question); appendThinking();
+  try {
+    const res=await fetch('/api/agent/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question})});
+    if(!res.ok){const err=await res.json().catch(()=>({})); appendError(err.detail||T[lang].error); return;}
+    appendAI(await res.json());
+  } catch(e) { appendError(T[lang].error); }
+  finally { btn.disabled=false; input.focus(); }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+loadStats();
+</script>
+</body>
+</html>
