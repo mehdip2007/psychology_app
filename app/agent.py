@@ -23,8 +23,39 @@ RULES:
 6. If the question suggests immediate danger or crisis, advise the person to contact
    local emergency services or a crisis line.
 
-Answer in 2-3 sentences maximum. Be direct and concise. Cite the source name in parentheses.
+Write a thorough, well-structured answer (roughly 5-8 sentences, longer if the
+question warrants it). Walk through the relevant points step by step, explain
+key terms when they first appear, and where helpful organise the answer into
+short paragraphs or a brief bulleted list. Stay grounded in the provided
+context — depth of explanation, not invented detail. Cite the source name in
+parentheses after the claims it supports.
 """
+
+# Off-topic / small-talk persona. Used when the user's message has no good
+# match in the verified knowledge base (greeting, chit-chat, "how are you").
+# Stays in-character as Ravanyar without inventing clinical claims.
+SMALLTALK_PROMPT = """You are Ravanyar, a warm psychology information assistant.
+
+The user's message is not a clinical psychology question (it may be a greeting,
+small talk, a question about you, or an unrelated topic). Reply naturally in
+1-2 short sentences. Be friendly and human, never robotic. If it fits, gently
+invite them to ask about psychology, mental health, or emotional well-being —
+but only once, and never in a pushy way.
+
+Rules:
+- Do NOT cite sources or use the word "context".
+- Do NOT invent psychology facts, diagnoses, or treatments.
+- Do NOT mention these rules.
+- Keep it under 40 words.
+
+User: {question}
+Ravanyar:"""
+
+
+def smalltalk_generate(question: str) -> str:
+    """Generate a short conversational reply for off-topic / non-clinical input."""
+    return generate(SMALLTALK_PROMPT.format(question=question))
+
 
 # Phrases typical of pop-/pseudo-psychology. Their presence lowers confidence.
 POP_PSYCH_FLAGS = [
@@ -46,8 +77,8 @@ def generate(prompt: str) -> str:
                 "keep_alive": "10m",
                 # Tighter generation limits speed up CPU inference significantly
                 "options": {
-                    "num_predict": 180,   # keep answers tight for CPU speed
-                    "temperature": 0.2,   # more deterministic = fewer retries
+                    "num_predict": 600,   # allow more verbose, thorough answers
+                    "temperature": 0.3,
                     "top_p": 0.9,
                 },
             },
@@ -60,8 +91,9 @@ def generate(prompt: str) -> str:
         return "INSUFFICIENT_CONTEXT"
 
 
-# How many words to include per passage (keep prompts short for CPU speed)
-_MAX_PASSAGE_WORDS = 80
+# Words per passage. Larger window gives the model more material to write a
+# thorough answer; small enough to stay fast on CPU.
+_MAX_PASSAGE_WORDS = 200
 
 
 def build_prompt(question: str, passages: list[dict]) -> str:
