@@ -303,6 +303,7 @@
   @keyframes pulse { 0%,80%,100%{transform:scale(.7);opacity:.5;} 40%{transform:scale(1);opacity:1;} }
 
   .error-bubble { background:color-mix(in srgb, var(--danger) 12%, var(--surface)); border:1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); color:var(--danger); padding:11px 14px; border-radius:var(--radius); font-size:13px; align-self:flex-end; max-width:84%; }
+  .insufficient-bubble { background:color-mix(in srgb, var(--gold) 10%, var(--surface)); border:1px solid color-mix(in srgb, var(--gold) 35%, var(--border)); color:var(--gold); padding:12px 16px; border-radius:var(--radius); font-size:14px; align-self:flex-end; max-width:84%; line-height:1.7; }
 
   /* input */
   .input-area { padding: 10px 0 18px; flex-shrink: 0; border-top: 1px solid var(--border); }
@@ -736,10 +737,21 @@ function removeThinking() { const t=document.getElementById('thinking'); if(t) t
 
 function appendAI(data) {
   const t=T[lang]; removeThinking();
-  if(!data.is_safe||!data.answer) {
+
+  // Hard failure: no answer at all (network/server error)
+  if(!data.answer) {
     const div=document.createElement('div'); div.className='error-bubble'; div.style.animation='fadeUp .3s ease both';
     div.textContent=t.noSource; document.getElementById('messages').appendChild(div); scrollBottom(); return;
   }
+
+  // Soft failure: sources found but LLM couldn't produce a reliable answer.
+  // Show the answer (it's the pre-approved fallback) in an amber warning bubble.
+  if(data.insufficient) {
+    const div=document.createElement('div'); div.className='insufficient-bubble'; div.style.animation='fadeUp .3s ease both';
+    div.innerHTML=`<span style="font-size:16px;margin-left:8px;">⚠️</span>${escHtml(data.answer)}`;
+    document.getElementById('messages').appendChild(div); scrollBottom(); return;
+  }
+
   const sources=(data.sources||[]).map(s=>`<span class="source-tag">${escHtml(s)}</span>`).join('');
   const conf=typeof data.confidence==='number'?data.confidence:0;
   const div=document.createElement('div'); div.className='msg ai';

@@ -359,7 +359,7 @@ def agent_ask(req: AskRequest):
     hits = qdrant.search(
         collection_name=settings.qdrant_collection,
         query_vector=embed(question),
-        limit=5,
+        limit=3,
         query_filter=models.Filter(
             must=[
                 models.FieldCondition(
@@ -394,10 +394,15 @@ def agent_ask(req: AskRequest):
     answer_en = generate(build_prompt(question_en, passages))
     check = validate(answer_en, passages)
 
-    if not check["is_safe"]:
+    # When the LLM signals insufficient context, replace with a clear fallback.
+    # After substitution the answer IS safe to show — mark it accordingly so
+    # the UI can display it (and the user understands why it's limited).
+    insufficient = not check["is_safe"]
+    if insufficient:
         answer_en = (
-            "I can only provide verified clinical information and could not produce "
-            "a reliable answer here. Please consult a licensed psychologist."
+            "The available sources don't contain enough verified clinical information "
+            "to answer this question reliably. Please consult a licensed psychologist "
+            "or psychiatrist for accurate guidance on this topic."
         )
 
     answer_fa = translator.to_persian(answer_en)
@@ -411,11 +416,14 @@ def agent_ask(req: AskRequest):
         "confidence": check["confidence"],
         "sources": sorted({p["source_name"] for p in passages}),
         "flags": check["flags"],
-        "is_safe": check["is_safe"],
+        # After fallback substitution the response is safe to display.
+        # Keep is_safe=True so the UI shows the answer instead of a blank error.
+        "is_safe": True,
+        "insufficient": insufficient,   # lets the UI apply a softer warning style
         "language": "fa",
     }
 
-    # audit log + cache
+    # audit log
     db.conversations.insert_one(
         {
             "question": question,
@@ -424,11 +432,15 @@ def agent_ask(req: AskRequest):
             "answer_fa": answer_fa,
             "confidence": check["confidence"],
             "flags": check["flags"],
+            "insufficient": insufficient,
             "sources": response["sources"],
             "created_at": datetime.now(timezone.utc),
         }
     )
-    cache.setex(cache_key, 3600, json.dumps(response))
+    # Only cache confident, sufficient answers — low-confidence responses may
+    # improve on retry once the model is warmer or context changes.
+    if not insufficient and check["confidence"] >= settings.min_trust_score:
+        cache.setex(cache_key, 3600, json.dumps(response))
     ASK_COUNT.inc()
     return response
 
