@@ -23,7 +23,7 @@ RULES:
 6. If the question suggests immediate danger or crisis, advise the person to contact
    local emergency services or a crisis line.
 
-Answer concisely in English. Cite the source name in parentheses where relevant.
+Answer in 2-3 sentences maximum. Be direct and concise. Cite the source name in parentheses.
 """
 
 # Phrases typical of pop-/pseudo-psychology. Their presence lowers confidence.
@@ -38,7 +38,19 @@ def generate(prompt: str) -> str:
     try:
         resp = requests.post(
             f"{settings.ollama_url}/api/generate",
-            json={"model": settings.ollama_model, "prompt": prompt, "stream": False},
+            json={
+                "model": settings.ollama_model,
+                "prompt": prompt,
+                "stream": False,
+                # Keep the model loaded between requests (avoids 10-30 s reload penalty)
+                "keep_alive": "10m",
+                # Tighter generation limits speed up CPU inference significantly
+                "options": {
+                    "num_predict": 180,   # keep answers tight for CPU speed
+                    "temperature": 0.2,   # more deterministic = fewer retries
+                    "top_p": 0.9,
+                },
+            },
             timeout=300,
         )
         resp.raise_for_status()
@@ -48,10 +60,22 @@ def generate(prompt: str) -> str:
         return "INSUFFICIENT_CONTEXT"
 
 
+# How many words to include per passage (keep prompts short for CPU speed)
+_MAX_PASSAGE_WORDS = 80
+
+
 def build_prompt(question: str, passages: list[dict]) -> str:
-    """Assemble the final prompt from retrieved, verified passages."""
+    """Assemble the final prompt from retrieved, verified passages.
+
+    Truncates each passage to _MAX_PASSAGE_WORDS words so the total context
+    fits comfortably in the model's window and inference stays fast on CPU.
+    """
+    def _trim(text: str) -> str:
+        words = text.split()
+        return " ".join(words[:_MAX_PASSAGE_WORDS]) + ("…" if len(words) > _MAX_PASSAGE_WORDS else "")
+
     context = "\n\n".join(
-        f"[Source: {p['source_name']} | trust={p['trust_score']}]\n{p['content']}"
+        f"[Source: {p['source_name']}]\n{_trim(p['content'])}"
         for p in passages
     )
     return (
