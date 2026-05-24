@@ -35,5 +35,10 @@ class Settings(BaseSettings):
     # ---- Guardrails ----
     min_trust_score: float = 0.7
 
+    # Below this top-hit cosine score the question is treated as off-topic
+    # (small-talk / non-clinical) and the agent replies conversationally
+    # instead of running RAG. Tune up to be stricter about staying on topic.
+    smalltalk_score_threshold: float = 0.40
+
 
 settings = Settings()

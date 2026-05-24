@@ -305,6 +305,31 @@
   .error-bubble { background:color-mix(in srgb, var(--danger) 12%, var(--surface)); border:1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); color:var(--danger); padding:11px 14px; border-radius:var(--radius); font-size:13px; align-self:flex-end; max-width:84%; }
   .insufficient-bubble { background:color-mix(in srgb, var(--gold) 10%, var(--surface)); border:1px solid color-mix(in srgb, var(--gold) 35%, var(--border)); color:var(--gold); padding:12px 16px; border-radius:var(--radius); font-size:14px; align-self:flex-end; max-width:84%; line-height:1.7; }
 
+  /* ── Chat list items ── */
+  .chat-item {
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius-sm); padding:7px 9px; font-size:12px;
+    cursor:pointer; transition:all .15s;
+  }
+  .chat-item:hover { border-color:var(--teal-light); background:var(--teal-dim); }
+  .chat-item.active { border-color:var(--teal); background:var(--teal-dim); }
+  .chat-item-title { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); padding:0 6px; }
+  .chat-item-del { background:none; border:none; color:var(--text-soft); cursor:pointer; font-size:12px; padding:2px 4px; border-radius:4px; flex-shrink:0; }
+  .chat-item-del:hover { color:var(--danger); background:rgba(192,57,43,.08); }
+  .chat-empty { font-size:11px; color:var(--text-soft); text-align:center; padding:8px 4px; }
+
+  /* ── Language choice prompt bubble ── */
+  .lang-choice {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); padding:12px 16px; align-self:flex-end;
+    max-width:84%; box-shadow:var(--shadow);
+  }
+  .lang-choice-text { font-size:13px; color:var(--text); margin-bottom:10px; line-height:1.6; }
+  .lang-choice-btns { display:flex; gap:8px; }
+  .lang-choice-btn { flex:1; padding:8px 12px; border:1px solid var(--border); background:var(--bg); color:var(--text); border-radius:var(--radius-sm); cursor:pointer; font-family:'Vazirmatn',sans-serif; font-size:13px; transition:all .15s; }
+  .lang-choice-btn:hover { background:var(--teal-dim); border-color:var(--teal-light); color:var(--teal); }
+
   /* input */
   .input-area { padding: 10px 0 18px; flex-shrink: 0; border-top: 1px solid var(--border); }
   .input-row { display: flex; gap: 9px; align-items: flex-end; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 9px 11px; transition: border-color .2s, box-shadow .2s; box-shadow: var(--shadow); }
@@ -339,6 +364,15 @@
     </div>
 
     <div class="sidebar-body">
+
+      <!-- Chats -->
+      <div class="s-card">
+        <div class="s-card-title">💬 <span id="sb-chats-title">گفت‌وگوها</span></div>
+        <button class="sync-btn" id="new-chat-btn" onclick="newChat()" style="margin-bottom:10px;">
+          ＋ <span id="new-chat-label">گفت‌وگوی جدید</span>
+        </button>
+        <div class="sources-list" id="chats-list" style="max-height:220px;"></div>
+      </div>
 
       <!-- Status -->
       <div class="s-card">
@@ -496,6 +530,10 @@ const T = {
     sbLinksTitle:'ابزارها',
     sbLs:'Label Studio (بررسی منابع)',
     sbApi:'مستندات API', sbQdrant:'Qdrant Dashboard',
+    sbChatsTitle:'گفت‌وگوها', newChat:'گفت‌وگوی جدید', noChats:'هنوز گفت‌وگویی نیست',
+    langChoiceMsg:'سؤال شما به انگلیسی است. پاسخ را به چه زبانی می‌خواهید؟',
+    langEn:'English', langFa:'فارسی',
+    deleteChat:'حذف گفت‌وگو؟',
   },
   en: {
     disclaimer:'This assistant provides verified clinical information only and is not a substitute for a licensed psychologist. In emergencies contact emergency services immediately.',
@@ -528,11 +566,19 @@ const T = {
     sbLinksTitle:'Tools',
     sbLs:'Label Studio (review sources)',
     sbApi:'API Docs', sbQdrant:'Qdrant Dashboard',
+    sbChatsTitle:'Chats', newChat:'New chat', noChats:'No chats yet',
+    langChoiceMsg:'Your question is in English. Which language do you want the answer in?',
+    langEn:'English', langFa:'فارسی (Persian)',
+    deleteChat:'Delete this chat?',
   }
 };
 
 let lang = 'fa';
 let sidebarOpen = true;
+let currentChatId = null;
+let chatsCache = [];
+// Holds an English question awaiting a language pick from the user
+let pendingEnglishQuestion = null;
 
 // ── Language ──────────────────────────────────────────────────────────────
 function setLang(l) {
@@ -564,6 +610,9 @@ function setLang(l) {
   document.getElementById('sb-sources-title').textContent = t.sourcesTitle;
   document.getElementById('ub-click').textContent = t.ubClick;
   document.getElementById('ub-or').textContent = t.ubOr;
+  document.getElementById('sb-chats-title').textContent = t.sbChatsTitle;
+  document.getElementById('new-chat-label').textContent = t.newChat;
+  renderChats();
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────
@@ -744,6 +793,14 @@ function appendAI(data) {
     div.textContent=t.noSource; document.getElementById('messages').appendChild(div); scrollBottom(); return;
   }
 
+  // Conversational / off-topic reply: plain bubble, no badge bar, no disclaimer.
+  if(data.smalltalk) {
+    const t=T[lang];
+    const div=document.createElement('div'); div.className='msg ai';
+    div.innerHTML=`<div class="msg-label">${t.assistant}</div><div class="msg-bubble">${escHtml(data.answer)}</div>`;
+    document.getElementById('messages').appendChild(div); scrollBottom(); return;
+  }
+
   // Soft failure: sources found but LLM couldn't produce a reliable answer.
   // Show the answer (it's the pre-approved fallback) in an amber warning bubble.
   if(data.insufficient) {
@@ -772,18 +829,159 @@ function appendError(msg) {
   div.textContent=msg||T[lang].error; document.getElementById('messages').appendChild(div); scrollBottom();
 }
 
-// ── Send message ──────────────────────────────────────────────────────────
-async function sendMessage() {
-  const input=document.getElementById('input'), btn=document.getElementById('send-btn');
-  const question=input.value.trim(); if(!question) return;
-  hideWelcome(); input.value=''; input.style.height='auto'; btn.disabled=true;
-  appendUser(question); appendThinking();
+// ── Chat sessions ─────────────────────────────────────────────────────────
+async function ensureChat() {
+  if (currentChatId) return currentChatId;
   try {
-    const res=await fetch('/api/agent/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question})});
-    if(!res.ok){const err=await res.json().catch(()=>({})); appendError(err.detail||T[lang].error); return;}
-    appendAI(await res.json());
-  } catch(e) { appendError(T[lang].error); }
-  finally { btn.disabled=false; input.focus(); }
+    const res = await fetch('/api/chats', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({})
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    currentChatId = data.id;
+    // Reflect the new chat in the sidebar immediately, then refresh from
+    // the server so the title (set by the first user message) appears.
+    chatsCache = [{ id: data.id, title: data.title || 'New chat',
+                    created_at: data.created_at, updated_at: data.updated_at,
+                    message_count: 0 }, ...chatsCache];
+    renderChats();
+    return currentChatId;
+  } catch { return null; }
+}
+
+async function newChat() {
+  currentChatId = null;
+  pendingEnglishQuestion = null;
+  document.getElementById('messages').innerHTML = `
+    <div class="welcome" id="welcome">
+      <div class="welcome-orb">🧠</div>
+      <h2 id="welcome-title">${T[lang].welcomeTitle}</h2>
+      <p id="welcome-sub">${T[lang].welcomeSub}</p>
+    </div>`;
+  // Re-fetch so any chat we were just in (now with a real title) shows up.
+  await loadChats();
+}
+
+async function loadChats() {
+  try {
+    const res = await fetch('/api/chats');
+    if (!res.ok) return;
+    chatsCache = await res.json();
+    renderChats();
+  } catch {}
+}
+
+function renderChats() {
+  const list = document.getElementById('chats-list');
+  if (!list) return;
+  if (!chatsCache.length) {
+    list.innerHTML = `<div class="chat-empty">${T[lang].noChats}</div>`;
+    return;
+  }
+  list.innerHTML = chatsCache.map(c => `
+    <div class="chat-item ${c.id===currentChatId?'active':''}" data-id="${c.id}" onclick="selectChat('${c.id}')">
+      <span style="color:var(--teal);font-size:11px;">💬</span>
+      <span class="chat-item-title" title="${escHtml(c.title)}">${escHtml(c.title)}</span>
+      <button class="chat-item-del" onclick="event.stopPropagation();deleteChat('${c.id}')" title="✕">✕</button>
+    </div>`).join('');
+}
+
+async function selectChat(id) {
+  try {
+    const res = await fetch('/api/chats/'+encodeURIComponent(id));
+    if (!res.ok) return;
+    const chat = await res.json();
+    currentChatId = chat.id;
+    pendingEnglishQuestion = null;
+    const m = document.getElementById('messages');
+    m.innerHTML = '';
+    for (const msg of chat.messages) {
+      if (msg.role === 'user') {
+        appendUser(msg.content);
+      } else {
+        appendAI({
+          answer: msg.content,
+          confidence: msg.confidence,
+          sources: msg.sources || [],
+          insufficient: msg.insufficient,
+          smalltalk: msg.smalltalk,
+          language: msg.language,
+        });
+      }
+    }
+    renderChats();
+  } catch {}
+}
+
+async function deleteChat(id) {
+  if (!confirm(T[lang].deleteChat)) return;
+  try {
+    await fetch('/api/chats/'+encodeURIComponent(id), { method:'DELETE' });
+    if (id === currentChatId) newChat();
+    loadChats();
+  } catch {}
+}
+
+// ── Language-choice prompt ────────────────────────────────────────────────
+function appendLangChoice(question) {
+  removeThinking();
+  pendingEnglishQuestion = question;
+  const t = T[lang];
+  const div = document.createElement('div');
+  div.className = 'lang-choice';
+  div.id = 'lang-choice';
+  div.innerHTML = `
+    <div class="lang-choice-text">${t.langChoiceMsg}</div>
+    <div class="lang-choice-btns">
+      <button class="lang-choice-btn" onclick="resolveLangChoice('en')">${t.langEn}</button>
+      <button class="lang-choice-btn" onclick="resolveLangChoice('fa')">${t.langFa}</button>
+    </div>`;
+  document.getElementById('messages').appendChild(div);
+  scrollBottom();
+}
+
+async function resolveLangChoice(answerLang) {
+  const q = pendingEnglishQuestion;
+  pendingEnglishQuestion = null;
+  const el = document.getElementById('lang-choice'); if (el) el.remove();
+  if (!q) return;
+  appendThinking();
+  await postAsk(q, answerLang);
+}
+
+// ── Send message ──────────────────────────────────────────────────────────
+async function postAsk(question, answerLang) {
+  const btn = document.getElementById('send-btn');
+  btn.disabled = true;
+  const chatId = await ensureChat();
+  try {
+    const body = { question, chat_id: chatId };
+    if (answerLang) body.answer_lang = answerLang;
+    const res = await fetch('/api/agent/ask', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(()=>({}));
+      appendError(err.detail || T[lang].error); return;
+    }
+    const data = await res.json();
+    if (data.language_choice_required) {
+      appendLangChoice(question);
+    } else {
+      appendAI(data);
+      loadChats();   // titles/counts may have changed
+    }
+  } catch { appendError(T[lang].error); }
+  finally { btn.disabled = false; document.getElementById('input').focus(); }
+}
+
+async function sendMessage() {
+  const input = document.getElementById('input');
+  const question = input.value.trim(); if (!question) return;
+  hideWelcome(); input.value=''; input.style.height='auto';
+  appendUser(question); appendThinking();
+  await postAsk(question);
 }
 
 // ── Theme ─────────────────────────────────────────────────────────────────
@@ -808,6 +1006,7 @@ function applyTheme(theme) {
 })();
 
 loadStats();
+loadChats();
 </script>
 </body>
 </html>

@@ -19,10 +19,11 @@ from bson import ObjectId
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from prometheus_client import Counter, make_asgi_app
 from pydantic import BaseModel
+from typing import Literal, Optional
 from pymongo import MongoClient
 from qdrant_client import QdrantClient, models
 
-from .agent import build_prompt, generate, validate
+from .agent import build_prompt, generate, smalltalk_generate, validate
 from .config import settings
 from .services import (
     LabelStudio,
@@ -338,8 +339,48 @@ def review_sync():
 # ==========================================================================
 # 3. Agent  -  Persian question -> verified RAG -> Persian answer
 # ==========================================================================
+# Greetings & chit-chat tokens (Persian + English). Any message that is
+# *just* these (or a short utterance containing them) is treated as small
+# talk without going through Qdrant — the multilingual embedder is noisy
+# on very short Persian inputs and otherwise lets greetings score above
+# the similarity threshold against unrelated English passages.
+_SMALLTALK_TOKENS_FA = {
+    "سلام", "درود", "چطوری", "چطورید", "چطوری؟", "خوبی", "خوبی؟", "خوبید",
+    "مرسی", "ممنون", "تشکر", "خداحافظ", "بای", "صبح‌بخیر", "شب‌بخیر",
+    "عصربخیر", "وقت‌بخیر", "حالت‌چطوره", "خسته‌نباشی", "خداقوت",
+}
+_SMALLTALK_TOKENS_EN = {
+    "hi", "hello", "hey", "yo", "howdy", "sup", "thanks", "thx", "ty",
+    "thank", "bye", "goodbye", "cya", "later", "morning", "evening",
+    "night", "ok", "okay", "cool", "nice", "great",
+}
+_ALL_SMALLTALK_TOKENS = _SMALLTALK_TOKENS_FA | _SMALLTALK_TOKENS_EN
+
+
+def _looks_like_smalltalk(question: str) -> bool:
+    """Greeting / chit-chat detector — bypass RAG when this returns True.
+
+    Triggers when:
+      * the message contains a known greeting/closer token, OR
+      * the message is short (≤4 words) and has no question mark.
+    """
+    q = question.strip().lower()
+    # Strip leading/trailing punctuation but keep internal letters.
+    cleaned = q.replace("؟", " ").replace("?", " ").replace("!", " ").replace(".", " ").replace(",", " ")
+    words = [w.strip("؟?!.,،:;") for w in cleaned.split() if w.strip()]
+    if any(w in _ALL_SMALLTALK_TOKENS for w in words):
+        return True
+    if len(words) <= 4 and "؟" not in question and "?" not in question:
+        return True
+    return False
+
+
 class AskRequest(BaseModel):
     question: str
+    chat_id: Optional[str] = None
+    # When the question is English we don't know whether the user prefers the
+    # answer in English or Persian — UI sends this on the follow-up call.
+    answer_lang: Optional[Literal["fa", "en"]] = None
 
 
 @app.post("/agent/ask")
@@ -348,48 +389,97 @@ def agent_ask(req: AskRequest):
     if not question:
         raise HTTPException(400, "Field 'question' must not be empty.")
 
-    # cache hit?
-    cache_key = "ask:" + hashlib.sha256(question.encode()).hexdigest()
-    if (cached := cache.get(cache_key)) is not None:
-        return {**json.loads(cached), "cached": True}
-
     lang = detect_language(question)
 
-    # The multilingual embedder lets a Persian question match English docs.
-    hits = qdrant.search(
-        collection_name=settings.qdrant_collection,
-        query_vector=embed(question),
-        limit=3,
-        query_filter=models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="is_verified", match=models.MatchValue(value=True)
-                )
-            ]
-        ),
-    )
-    passages = []
-    for hit in hits:
-        mid = hit.payload.get("mongo_id")
-        doc = db.psychology_docs.find_one({"_id": ObjectId(mid)}) if mid else None
-        if doc:
-            passages.append(doc)
-
-    # no verified knowledge -> say so, do not improvise
-    if not passages:
-        answer_fa = translator.to_persian(
-            "I don't have verified clinical information on this topic yet. "
-            "Please consult a licensed psychologist."
-        )
+    # English question + no language preference yet → ask the user which
+    # language they want the answer in. UI re-submits with answer_lang set.
+    if lang == "en" and req.answer_lang is None:
         return {
-            "answer": answer_fa,
-            "confidence": 0.0,
-            "sources": [],
-            "is_safe": True,
-            "language": "fa",
+            "language_choice_required": True,
+            "detected_language": "en",
+            "message": "Detected English question. Which language do you want the answer in?",
+            "options": ["en", "fa"],
         }
 
-    # reason in English, then translate the answer back to Persian
+    answer_lang = req.answer_lang or ("fa" if lang == "fa" else "en")
+
+    # cache hit? (key includes answer language so EN/FA don't collide)
+    cache_key = "ask:" + hashlib.sha256(
+        f"{answer_lang}:{question}".encode()
+    ).hexdigest()
+    if (cached := cache.get(cache_key)) is not None:
+        result = {**json.loads(cached), "cached": True}
+        _append_chat_message(req.chat_id, question, result)
+        return result
+
+    # Greeting / very-short / chit-chat: skip Qdrant entirely. The multilingual
+    # embedder is noisy on short Persian utterances and otherwise lets them
+    # score above the threshold against unrelated English passages — making
+    # Persian chit-chat get a Mark-Manson essay while English chit-chat
+    # correctly gets a conversational reply.
+    if _looks_like_smalltalk(question):
+        hits, passages, top_score = [], [], 0.0
+    else:
+        # The multilingual embedder lets a Persian question match English docs.
+        hits = qdrant.search(
+            collection_name=settings.qdrant_collection,
+            query_vector=embed(question),
+            limit=3,
+            query_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="is_verified", match=models.MatchValue(value=True)
+                    )
+                ]
+            ),
+        )
+        passages = []
+        for hit in hits:
+            mid = hit.payload.get("mongo_id")
+            doc = db.psychology_docs.find_one({"_id": ObjectId(mid)}) if mid else None
+            if doc:
+                passages.append(doc)
+        top_score = max((h.score for h in hits), default=0.0)
+
+    # If retrieval is weak (greeting, chit-chat, unrelated topic) drop into a
+    # short conversational reply instead of the clinical-RAG path.  We never
+    # invent clinical content here — the small-talk prompt is locked down.
+    if not passages or top_score < settings.smalltalk_score_threshold:
+        question_en = translator.to_english(question) if lang == "fa" else question
+        smalltalk_en = smalltalk_generate(question_en).strip()
+        # Safety net: if the model returned nothing, fall back to a static line.
+        if not smalltalk_en:
+            smalltalk_en = (
+                "Hi! I'm Ravanyar, an evidence-based psychology assistant. "
+                "Ask me anything about mental health whenever you're ready."
+            )
+        answer_out = (
+            translator.to_persian(smalltalk_en) if answer_lang == "fa" else smalltalk_en
+        )
+        result = {
+            "answer": answer_out,
+            "confidence": None,        # not a clinical answer — no confidence
+            "sources": [],
+            "is_safe": True,
+            "smalltalk": True,         # lets the UI render without the badge bar
+            "language": answer_lang,
+        }
+        db.conversations.insert_one(
+            {
+                "question": question,
+                "language": lang,
+                "answer_lang": answer_lang,
+                "smalltalk": True,
+                "retrieval_top_score": top_score,
+                "answer_out": answer_out,
+                "chat_id": req.chat_id,
+                "created_at": datetime.now(timezone.utc),
+            }
+        )
+        _append_chat_message(req.chat_id, question, result)
+        return result
+
+    # reason in English, then translate back to the requested language
     question_en = translator.to_english(question) if lang == "fa" else question
     answer_en = generate(build_prompt(question_en, passages))
     check = validate(answer_en, passages)
@@ -405,14 +495,17 @@ def agent_ask(req: AskRequest):
             "or psychiatrist for accurate guidance on this topic."
         )
 
-    answer_fa = translator.to_persian(answer_en)
-    disclaimer_fa = translator.to_persian(
-        "This is informational only and is not a substitute for professional care."
-    )
+    disclaimer_en = "This is informational only and is not a substitute for professional care."
+    if answer_lang == "fa":
+        answer_out = translator.to_persian(answer_en)
+        disclaimer_out = translator.to_persian(disclaimer_en)
+    else:
+        answer_out = answer_en
+        disclaimer_out = disclaimer_en
 
     response = {
-        "answer": answer_fa,
-        "disclaimer": disclaimer_fa,
+        "answer": answer_out,
+        "disclaimer": disclaimer_out,
         "confidence": check["confidence"],
         "sources": sorted({p["source_name"] for p in passages}),
         "flags": check["flags"],
@@ -420,7 +513,7 @@ def agent_ask(req: AskRequest):
         # Keep is_safe=True so the UI shows the answer instead of a blank error.
         "is_safe": True,
         "insufficient": insufficient,   # lets the UI apply a softer warning style
-        "language": "fa",
+        "language": answer_lang,
     }
 
     # audit log
@@ -428,12 +521,14 @@ def agent_ask(req: AskRequest):
         {
             "question": question,
             "language": lang,
+            "answer_lang": answer_lang,
             "answer_en": answer_en,
-            "answer_fa": answer_fa,
+            "answer_out": answer_out,
             "confidence": check["confidence"],
             "flags": check["flags"],
             "insufficient": insufficient,
             "sources": response["sources"],
+            "chat_id": req.chat_id,
             "created_at": datetime.now(timezone.utc),
         }
     )
@@ -442,6 +537,7 @@ def agent_ask(req: AskRequest):
     if not insufficient and check["confidence"] >= settings.min_trust_score:
         cache.setex(cache_key, 3600, json.dumps(response))
     ASK_COUNT.inc()
+    _append_chat_message(req.chat_id, question, response)
     return response
 
 
@@ -466,3 +562,145 @@ def obsidian_sync(req: ObsidianSyncRequest):
         raise HTTPException(400, result["error"])
     OBSIDIAN_SYNC_COUNT.inc()
     return result
+
+
+# ==========================================================================
+# 5. Chat sessions  -  multi-turn conversations with persistent history
+# ==========================================================================
+CHAT_CREATE_COUNT = Counter("psyche_chat_create_total", "Chat sessions created")
+
+
+class ChatCreateRequest(BaseModel):
+    title: Optional[str] = None
+
+
+def _chat_doc_to_json(doc: dict) -> dict:
+    """MongoDB doc -> JSON-safe shape for the API."""
+    return {
+        "id": str(doc["_id"]),
+        "title": doc.get("title") or "New chat",
+        "created_at": doc["created_at"].isoformat(),
+        "updated_at": doc.get("updated_at", doc["created_at"]).isoformat(),
+        "message_count": len(doc.get("messages", [])),
+    }
+
+
+def _append_chat_message(chat_id: Optional[str], question: str, answer: dict) -> None:
+    """Persist a Q&A turn onto an existing chat. No-op if chat_id is missing
+    or invalid — /agent/ask works without a chat too."""
+    if not chat_id:
+        return
+    try:
+        oid = ObjectId(chat_id)
+    except Exception:
+        return
+    now = datetime.now(timezone.utc)
+    msg_pair = [
+        {"role": "user", "content": question, "ts": now},
+        {
+            "role": "assistant",
+            "content": answer.get("answer", ""),
+            "language": answer.get("language"),
+            "confidence": answer.get("confidence"),
+            "sources": answer.get("sources", []),
+            "insufficient": answer.get("insufficient", False),
+            "smalltalk": answer.get("smalltalk", False),
+            "ts": now,
+        },
+    ]
+    # First user message also becomes the chat title (if still default).
+    update = {
+        "$push": {"messages": {"$each": msg_pair}},
+        "$set": {"updated_at": now},
+    }
+    chat = db.chat_sessions.find_one({"_id": oid}, {"title": 1, "messages": 1})
+    if chat is not None and not chat.get("title") and not chat.get("messages"):
+        update["$set"]["title"] = question[:60]
+    db.chat_sessions.update_one({"_id": oid}, update)
+
+
+@app.post("/chats")
+def chat_create(req: ChatCreateRequest):
+    """Start a new chat session."""
+    now = datetime.now(timezone.utc)
+    doc = {
+        "title": (req.title or "").strip() or None,
+        "messages": [],
+        "created_at": now,
+        "updated_at": now,
+    }
+    doc["_id"] = db.chat_sessions.insert_one(doc).inserted_id
+    CHAT_CREATE_COUNT.inc()
+    return _chat_doc_to_json(doc)
+
+
+@app.get("/chats")
+def chat_list(limit: int = 50):
+    """List recent chat sessions, newest first."""
+    # Use aggregation to get message counts without shipping all message bodies.
+    pipeline = [
+        {"$sort": {"updated_at": -1}},
+        {"$limit": max(1, min(limit, 200))},
+        {
+            "$project": {
+                "title": 1,
+                "created_at": 1,
+                "updated_at": 1,
+                "message_count": {"$size": {"$ifNull": ["$messages", []]}},
+            }
+        },
+    ]
+    return [
+        {
+            "id": str(doc["_id"]),
+            "title": doc.get("title") or "New chat",
+            "created_at": doc["created_at"].isoformat(),
+            "updated_at": doc.get("updated_at", doc["created_at"]).isoformat(),
+            "message_count": doc.get("message_count", 0),
+        }
+        for doc in db.chat_sessions.aggregate(pipeline)
+    ]
+
+
+@app.get("/chats/{chat_id}")
+def chat_get(chat_id: str):
+    """Fetch a full chat session with all messages."""
+    try:
+        oid = ObjectId(chat_id)
+    except Exception:
+        raise HTTPException(400, "Invalid chat_id.")
+    doc = db.chat_sessions.find_one({"_id": oid})
+    if not doc:
+        raise HTTPException(404, "Chat not found.")
+    return {
+        "id": str(doc["_id"]),
+        "title": doc.get("title") or "New chat",
+        "created_at": doc["created_at"].isoformat(),
+        "updated_at": doc.get("updated_at", doc["created_at"]).isoformat(),
+        "messages": [
+            {
+                "role": m["role"],
+                "content": m["content"],
+                "language": m.get("language"),
+                "confidence": m.get("confidence"),
+                "sources": m.get("sources", []),
+                "insufficient": m.get("insufficient", False),
+                "smalltalk": m.get("smalltalk", False),
+                "ts": m["ts"].isoformat() if hasattr(m.get("ts"), "isoformat") else m.get("ts"),
+            }
+            for m in doc.get("messages", [])
+        ],
+    }
+
+
+@app.delete("/chats/{chat_id}")
+def chat_delete(chat_id: str):
+    """Delete a chat session."""
+    try:
+        oid = ObjectId(chat_id)
+    except Exception:
+        raise HTTPException(400, "Invalid chat_id.")
+    result = db.chat_sessions.delete_one({"_id": oid})
+    if result.deleted_count == 0:
+        raise HTTPException(404, "Chat not found.")
+    return {"deleted": chat_id}
